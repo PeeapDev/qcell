@@ -7,8 +7,18 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import Image from 'next/image'
+import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd'
+import React from 'react';
+import { Formik, Form, Field, FieldArray } from 'formik';
+import * as Yup from 'yup';
 
-type SettingSection = "general" | "security" | "notifications" | "privacy"
+declare global {
+  interface Window {
+    google: typeof google;
+  }
+}
+
+type SettingSection = "general" | "security" | "notifications" | "privacy" | "createForm" | "twilio" | "smtp" | "theme" | "locations"
 
 interface SettingsPageProps {
   onSettingsChange: (logo: string, title: string, timeFormat: string, googleMapsApiKey: string) => void;
@@ -225,13 +235,37 @@ const allCountries: Country[] = [
   { name: "Zimbabwe", latitude: -19.015438, longitude: 29.154857 }
 ];
 
-export function SettingsPage({ 
-  onSettingsChange, 
-  defaultLogo, 
-  currentLogo, 
-  currentTitle, 
+interface FormField {
+  id: string;
+  type: string;
+  label: string;
+  required: boolean;
+  options?: string[];
+}
+
+const initialFormFields: FormField[] = [
+  { id: 'firstName', type: 'text', label: 'First Name', required: true },
+  { id: 'lastName', type: 'text', label: 'Last Name', required: true },
+  { id: 'email', type: 'email', label: 'Email', required: true },
+  { id: 'phoneNumber', type: 'tel', label: 'Phone Number', required: true },
+  { id: 'address', type: 'address', label: 'Address', required: true },
+  { id: 'documentType', type: 'select', label: 'Document Type', required: true, options: ['Passport', 'Driver\'s License', 'National ID'] },
+  { id: 'documentNumber', type: 'text', label: 'Document Number', required: true },
+];
+
+interface Region {
+  id: string;
+  name: string;
+  count: number;
+}
+
+export function SettingsPage({
+  onSettingsChange,
+  defaultLogo,
+  currentLogo,
+  currentTitle,
   currentTimeFormat,
-  currentGoogleMapsApiKey 
+  currentGoogleMapsApiKey
 }: SettingsPageProps) {
   const [activeSection, setActiveSection] = useState<SettingSection>("general")
   const [logo, setLogo] = useState<File | null>(null)
@@ -248,9 +282,48 @@ export function SettingsPage({
     country: "",
   })
 
-  const mapRef = useRef<HTMLDivElement>(null)
   const [map, setMap] = useState<google.maps.Map | null>(null)
+  const [autocomplete, setAutocomplete] = useState<google.maps.places.Autocomplete | null>(null)
+  const mapRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
   const [searchTerm, setSearchTerm] = useState("")
+  const [mapError, setMapError] = useState<string | null>(null);
+  const [isMapLoaded, setIsMapLoaded] = useState(false);
+  const [formFields, setFormFields] = useState<FormField[]>(initialFormFields);
+
+  const [twilioSettings, setTwilioSettings] = useState({
+    accountSid: "",
+    authToken: "",
+    phoneNumber: ""
+  })
+
+  const [smtpSettings, setSmtpSettings] = useState({
+    host: "",
+    port: "",
+    username: "",
+    password: "",
+    fromEmail: ""
+  })
+
+  const [themeSettings, setThemeSettings] = useState({
+    primaryColor: "#000000",
+    secondaryColor: "#ffffff",
+    fontFamily: "Arial",
+  })
+
+  const [regions, setRegions] = useState<Region[]>([
+    { id: '1', name: 'North America', count: 0 },
+    { id: '2', name: 'Europe', count: 0 },
+    { id: '3', name: 'Asia', count: 0 },
+    { id: '4', name: 'Africa', count: 0 },
+    { id: '5', name: 'South America', count: 0 },
+  ]);
+  const [newRegionName, setNewRegionName] = useState('');
+
+  const handleGeneralSettingChange = (key: string, value: string) => {
+    setGeneralSettings(prev => ({ ...prev, [key]: value }))
+  }
 
   useEffect(() => {
     onSettingsChange(
@@ -263,13 +336,71 @@ export function SettingsPage({
 
   useEffect(() => {
     if (window.google && window.google.maps && mapRef.current && !map) {
-      const newMap = new window.google.maps.Map(mapRef.current, {
+      initializeMap();
+    }
+  }, [generalSettings.googleMapsApiKey]);
+
+  const initializeMap = () => {
+    try {
+      const newMap = new window.google.maps.Map(mapRef.current!, {
         center: { lat: 0, lng: 0 },
         zoom: 2,
-      })
-      setMap(newMap)
+      });
+      setMap(newMap);
+      setIsMapLoaded(true);
+    } catch (error) {
+      console.error("Error initializing Google Maps:", error);
+      setMapError("Failed to initialize Google Maps. Please check your API key and try again.");
     }
-  }, [map])
+  };
+
+  const loadGoogleMaps = () => {
+    setMapError(null);
+    if (window.google && window.google.maps) {
+      initializeMap();
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${generalSettings.googleMapsApiKey}&libraries=places`;
+    script.async = true;
+    script.defer = true;
+    script.onload = initializeMap;
+    script.onerror = () => {
+      console.error("Error loading Google Maps script");
+      setMapError("Failed to load Google Maps. Please check your API key and internet connection.");
+    };
+    document.head.appendChild(script);
+  };
+
+  const updateMapForCountry = (country: Country) => {
+    if (map && isMapLoaded) {
+      map.setCenter({ lat: country.latitude, lng: country.longitude });
+      map.setZoom(6);
+      new google.maps.Marker({
+        position: { lat: country.latitude, lng: country.longitude },
+        map: map,
+        title: country.name
+      });
+    }
+  };
+
+  const handleCountryChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const value = event.target.value;
+    setSearchTerm(value);
+    handleGeneralSettingChange('country', value);
+
+    const selectedCountry = allCountries.find(country => country.name.toLowerCase() === value.toLowerCase());
+    if (selectedCountry) {
+      updateMapForCountry(selectedCountry);
+    }
+  };
+
+  const filteredCountries = useMemo(() => {
+    return allCountries.filter(country => 
+      country.name.toLowerCase().includes(searchTerm.toLowerCase())
+    )
+  }, [searchTerm])
 
   const handleLogoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files[0]) {
@@ -290,47 +421,39 @@ export function SettingsPage({
     setLogoPreview(defaultLogo)
   }
 
-  const handleGeneralSettingChange = (key: string, value: string) => {
-    setGeneralSettings(prev => ({ ...prev, [key]: value }))
+  const onDragEnd = (result: DropResult) => {
+    if (!result.destination) return;
+
+    const items = Array.from(formFields);
+    const [reorderedItem] = items.splice(result.source.index, 1);
+    items.splice(result.destination.index, 0, reorderedItem);
+
+    setFormFields(items);
+  };
+
+  const handleTwilioSettingChange = (key: string, value: string) => {
+    setTwilioSettings(prev => ({ ...prev, [key]: value }))
   }
 
-  const loadGoogleMaps = () => {
-    const script = document.createElement('script')
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${generalSettings.googleMapsApiKey}&libraries=places`
-    script.async = true
-    script.defer = true
-    script.onload = () => {
-      if (mapRef.current) {
-        const newMap = new window.google.maps.Map(mapRef.current, {
-          center: { lat: 0, lng: 0 },
-          zoom: 2,
-        })
-        setMap(newMap)
-      }
+  const handleSmtpSettingChange = (key: string, value: string) => {
+    setSmtpSettings(prev => ({ ...prev, [key]: value }))
+  }
+
+  const handleThemeSettingChange = (key: string, value: string) => {
+    setThemeSettings(prev => ({ ...prev, [key]: value }))
+  }
+
+  const handleAddRegion = () => {
+    if (newRegionName.trim() !== '') {
+      const newRegion: Region = {
+        id: (regions.length + 1).toString(),
+        name: newRegionName.trim(),
+        count: 0,
+      };
+      setRegions([...regions, newRegion]);
+      setNewRegionName('');
     }
-    document.head.appendChild(script)
-  }
-
-  const updateMapLocation = (latitude: number, longitude: number) => {
-    if (map) {
-      map.setCenter({ lat: latitude, lng: longitude })
-      map.setZoom(5) // Adjust zoom level as needed
-    }
-  }
-
-  const handleCountryChange = (value: string) => {
-    setGeneralSettings(prev => ({ ...prev, country: value }))
-    const selectedCountry = allCountries.find(country => country.name === value)
-    if (selectedCountry) {
-      updateMapLocation(selectedCountry.latitude, selectedCountry.longitude)
-    }
-  }
-
-  const filteredCountries = useMemo(() => {
-    return allCountries.filter(country => 
-      country.name.toLowerCase().includes(searchTerm.toLowerCase())
-    )
-  }, [searchTerm])
+  };
 
   const renderSettingContent = () => {
     switch (activeSection) {
@@ -432,30 +555,39 @@ export function SettingsPage({
             </div>
             <div>
               <Label htmlFor="country">Country</Label>
-              <Select
-                value={generalSettings.country}
-                onValueChange={handleCountryChange}
-              >
-                <SelectTrigger className="bg-white">
-                  <SelectValue placeholder="Select or search for a country" />
-                </SelectTrigger>
-                <SelectContent className="bg-white max-h-[300px]">
-                  <div className="px-3 py-2 sticky top-0 bg-white">
-                    <Input
-                      placeholder="Search countries..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                    />
-                  </div>
-                  <div className="max-h-[200px] overflow-y-auto">
-                    {filteredCountries.map((country) => (
-                      <SelectItem key={country.name} value={country.name}>
-                        {country.name}
-                      </SelectItem>
-                    ))}
-                  </div>
-                </SelectContent>
-              </Select>
+              <Input
+                ref={inputRef}
+                id="country"
+                placeholder="Search for a country"
+                className="bg-white"
+                value={searchTerm}
+                onChange={handleCountryChange}
+              />
+              {searchTerm && (
+                <div className="mt-2 max-h-40 overflow-y-auto bg-white border border-gray-300 rounded-md">
+                  {filteredCountries.map((country) => (
+                    <div
+                      key={country.name}
+                      className="px-3 py-2 hover:bg-gray-100 cursor-pointer"
+                      onClick={() => {
+                        setSearchTerm(country.name)
+                        handleGeneralSettingChange('country', country.name)
+                        if (map) {
+                          map.setCenter({ lat: country.latitude, lng: country.longitude })
+                          map.setZoom(6)
+                          new google.maps.Marker({
+                            position: { lat: country.latitude, lng: country.longitude },
+                            map: map,
+                            title: country.name
+                          })
+                        }
+                      }}
+                    >
+                      {country.name}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <div>
               <Label htmlFor="google-maps-api-key">Google Maps API Key</Label>
@@ -465,7 +597,7 @@ export function SettingsPage({
                 onChange={(e) => handleGeneralSettingChange('googleMapsApiKey', e.target.value)}
               />
               <p className="text-sm text-gray-500 mt-1">
-                This key will be used for both Google Maps JavaScript API and Google Places API.{' '}
+                This key will be used for Google Places API.{' '}
                 <a 
                   href="https://console.cloud.google.com/google/maps-apis/overview" 
                   target="_blank" 
@@ -478,10 +610,98 @@ export function SettingsPage({
               <Button onClick={loadGoogleMaps} className="mt-2">
                 Load Google Maps
               </Button>
+              {mapError && (
+                <p className="text-red-500 mt-2">{mapError}</p>
+              )}
             </div>
             <div>
-              <Label>Google Map Preview</Label>
-              <div ref={mapRef} style={{ width: '100%', height: '400px' }}></div>
+              <Label>Selected Country Map Preview</Label>
+              <div ref={mapRef} style={{ width: '100%', height: '400px' }}>
+                {mapError && (
+                  <div className="flex items-center justify-center h-full bg-gray-100 text-gray-500">
+                    {mapError}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )
+      case "createForm":
+        return (
+          <div className="space-y-6">
+            <h3 className="text-lg font-semibold mb-4">Create KYC Application Form</h3>
+            <DragDropContext onDragEnd={onDragEnd}>
+              <Droppable droppableId="formFields">
+                {(provided) => (
+                  <div {...provided.droppableProps} ref={provided.innerRef}>
+                    {formFields.map((field, index) => (
+                      <Draggable key={field.id} draggableId={field.id} index={index}>
+                        {(provided) => (
+                          <div
+                            ref={provided.innerRef}
+                            {...provided.draggableProps}
+                            {...provided.dragHandleProps}
+                            className="bg-white p-4 mb-2 rounded shadow"
+                          >
+                            <div className="flex justify-between items-center">
+                              <span>{field.label}</span>
+                              <div>
+                                <input
+                                  type="checkbox"
+                                  checked={field.required}
+                                  onChange={() => {
+                                    const newFields = formFields.map(f =>
+                                      f.id === field.id ? { ...f, required: !f.required } : f
+                                    );
+                                    setFormFields(newFields);
+                                  }}
+                                  className="mr-2"
+                                />
+                                <label className="mr-4">Required</label>
+                                <button
+                                  onClick={() => setFormFields(formFields.filter(f => f.id !== field.id))}
+                                  className="text-red-500"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </Draggable>
+                    ))}
+                    {provided.placeholder}
+                  </div>
+                )}
+              </Droppable>
+            </DragDropContext>
+            <Button onClick={() => console.log(formFields)}>Save Form Configuration</Button>
+
+            {/* Dynamic Settings Section */}
+            <div className="mt-8">
+              <h3 className="text-lg font-semibold mb-4">Dynamic Settings</h3>
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="new-region">Add New Region</Label>
+                  <div className="flex space-x-2">
+                    <Input
+                      id="new-region"
+                      value={newRegionName}
+                      onChange={(e) => setNewRegionName(e.target.value)}
+                      placeholder="Enter new region name"
+                    />
+                    <Button onClick={handleAddRegion}>Add Region</Button>
+                  </div>
+                </div>
+                <div>
+                  <h4 className="text-md font-semibold mb-2">Current Regions</h4>
+                  <ul className="list-disc pl-5">
+                    {regions.map((region) => (
+                      <li key={region.id}>{region.name}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
             </div>
           </div>
         )
@@ -491,61 +711,251 @@ export function SettingsPage({
         return <div>Notification Settings Content</div>
       case "privacy":
         return <div>Privacy Settings Content</div>
+      case "twilio":
+        return (
+          <div className="space-y-6">
+            <h3 className="text-lg font-semibold mb-4">Twilio SMS Settings</h3>
+            <div>
+              <Label htmlFor="twilio-account-sid">Account SID</Label>
+              <Input
+                id="twilio-account-sid"
+                value={twilioSettings.accountSid}
+                onChange={(e) => handleTwilioSettingChange('accountSid', e.target.value)}
+              />
+            </div>
+            <div>
+              <Label htmlFor="twilio-auth-token">Auth Token</Label>
+              <Input
+                id="twilio-auth-token"
+                type="password"
+                value={twilioSettings.authToken}
+                onChange={(e) => handleTwilioSettingChange('authToken', e.target.value)}
+              />
+            </div>
+            <div>
+              <Label htmlFor="twilio-phone-number">Twilio Phone Number</Label>
+              <Input
+                id="twilio-phone-number"
+                value={twilioSettings.phoneNumber}
+                onChange={(e) => handleTwilioSettingChange('phoneNumber', e.target.value)}
+              />
+            </div>
+            <Button onClick={() => console.log("Save Twilio settings", twilioSettings)}>
+              Save Twilio Settings
+            </Button>
+          </div>
+        )
+      case "smtp":
+        return (
+          <div className="space-y-6">
+            <h3 className="text-lg font-semibold mb-4">SMTP Settings</h3>
+            <div>
+              <Label htmlFor="smtp-host">SMTP Host</Label>
+              <Input
+                id="smtp-host"
+                value={smtpSettings.host}
+                onChange={(e) => handleSmtpSettingChange('host', e.target.value)}
+              />
+            </div>
+            <div>
+              <Label htmlFor="smtp-port">SMTP Port</Label>
+              <Input
+                id="smtp-port"
+                value={smtpSettings.port}
+                onChange={(e) => handleSmtpSettingChange('port', e.target.value)}
+              />
+            </div>
+            <div>
+              <Label htmlFor="smtp-username">SMTP Username</Label>
+              <Input
+                id="smtp-username"
+                value={smtpSettings.username}
+                onChange={(e) => handleSmtpSettingChange('username', e.target.value)}
+              />
+            </div>
+            <div>
+              <Label htmlFor="smtp-password">SMTP Password</Label>
+              <Input
+                id="smtp-password"
+                type="password"
+                value={smtpSettings.password}
+                onChange={(e) => handleSmtpSettingChange('password', e.target.value)}
+              />
+            </div>
+            <div>
+              <Label htmlFor="smtp-from-email">From Email</Label>
+              <Input
+                id="smtp-from-email"
+                type="email"
+                value={smtpSettings.fromEmail}
+                onChange={(e) => handleSmtpSettingChange('fromEmail', e.target.value)}
+              />
+            </div>
+            <Button onClick={() => console.log("Save SMTP settings", smtpSettings)}>
+              Save SMTP Settings
+            </Button>
+          </div>
+        )
+      case "theme":
+        return (
+          <div className="space-y-6">
+            <h3 className="text-lg font-semibold mb-4">Theme Settings</h3>
+            <div>
+              <Label htmlFor="primary-color">Primary Color</Label>
+              <Input
+                id="primary-color"
+                type="color"
+                value={themeSettings.primaryColor}
+                onChange={(e) => handleThemeSettingChange('primaryColor', e.target.value)}
+              />
+            </div>
+            <div>
+              <Label htmlFor="secondary-color">Secondary Color</Label>
+              <Input
+                id="secondary-color"
+                type="color"
+                value={themeSettings.secondaryColor}
+                onChange={(e) => handleThemeSettingChange('secondaryColor', e.target.value)}
+              />
+            </div>
+            <div>
+              <Label htmlFor="font-family">Font Family</Label>
+              <Select
+                value={themeSettings.fontFamily}
+                onValueChange={(value) => handleThemeSettingChange('fontFamily', value)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select font family" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Arial">Arial</SelectItem>
+                  <SelectItem value="Helvetica">Helvetica</SelectItem>
+                  <SelectItem value="Times New Roman">Times New Roman</SelectItem>
+                  <SelectItem value="Courier">Courier</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Button onClick={() => console.log("Save Theme settings", themeSettings)}>
+              Save Theme Settings
+            </Button>
+          </div>
+        )
+      case "locations":
+        return (
+          <div className="space-y-6">
+            <h3 className="text-lg font-semibold mb-4">Manage Locations</h3>
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="new-region">Add New Region</Label>
+                <div className="flex space-x-2">
+                  <Input
+                    id="new-region"
+                    value={newRegionName}
+                    onChange={(e) => setNewRegionName(e.target.value)}
+                    placeholder="Enter new region name"
+                  />
+                  <Button onClick={handleAddRegion}>Add Region</Button>
+                </div>
+              </div>
+              <div>
+                <h4 className="text-md font-semibold mb-2">Current Regions</h4>
+                <ul className="list-disc pl-5">
+                  {regions.map((region) => (
+                    <li key={region.id}>{region.name}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </div>
+        )
       default:
         return <div>Select a setting from the sidebar</div>
     }
   }
 
   return (
-    <>
-      <div className="flex h-full">
-        {/* Sidebar */}
-        <div className="w-64 bg-white p-4 shadow-md">
-          <h2 className="text-lg font-semibold mb-4">Settings</h2>
-          <div className="space-y-2">
-            <Button
-              variant={activeSection === "general" ? "default" : "ghost"}
-              className="w-full justify-start"
-              onClick={() => setActiveSection("general")}
-            >
-              General
-            </Button>
-            <Button
-              variant={activeSection === "security" ? "default" : "ghost"}
-              className="w-full justify-start"
-              onClick={() => setActiveSection("security")}
-            >
-              Security
-            </Button>
-            <Button
-              variant={activeSection === "notifications" ? "default" : "ghost"}
-              className="w-full justify-start"
-              onClick={() => setActiveSection("notifications")}
-            >
-              Notifications
-            </Button>
-            <Button
-              variant={activeSection === "privacy" ? "default" : "ghost"}
-              className="w-full justify-start"
-              onClick={() => setActiveSection("privacy")}
-            >
-              Privacy
-            </Button>
-          </div>
-        </div>
-
-        {/* Main Content */}
-        <div className="flex-1 p-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>{activeSection.charAt(0).toUpperCase() + activeSection.slice(1)} Settings</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {renderSettingContent()}
-            </CardContent>
-          </Card>
+    <div className="flex h-full">
+      {/* Sidebar */}
+      <div className="w-64 bg-white dark:bg-gray-800 p-4 shadow-md h-full overflow-y-auto">
+        <h2 className="text-lg font-semibold mb-4">Settings</h2>
+        <div className="space-y-2">
+          <Button
+            variant={activeSection === "general" ? "default" : "ghost"}
+            className="w-full justify-start"
+            onClick={() => setActiveSection("general")}
+          >
+            General
+          </Button>
+          <Button
+            variant={activeSection === "theme" ? "default" : "ghost"}
+            className="w-full justify-start"
+            onClick={() => setActiveSection("theme")}
+          >
+            Theme
+          </Button>
+          <Button
+            variant={activeSection === "security" ? "default" : "ghost"}
+            className="w-full justify-start"
+            onClick={() => setActiveSection("security")}
+          >
+            Security
+          </Button>
+          <Button
+            variant={activeSection === "notifications" ? "default" : "ghost"}
+            className="w-full justify-start"
+            onClick={() => setActiveSection("notifications")}
+          >
+            Notifications
+          </Button>
+          <Button
+            variant={activeSection === "privacy" ? "default" : "ghost"}
+            className="w-full justify-start"
+            onClick={() => setActiveSection("privacy")}
+          >
+            Privacy
+          </Button>
+          <Button
+            variant={activeSection === "createForm" ? "default" : "ghost"}
+            className="w-full justify-start"
+            onClick={() => setActiveSection("createForm")}
+          >
+            Create Form
+          </Button>
+          <Button
+            variant={activeSection === "twilio" ? "default" : "ghost"}
+            className="w-full justify-start"
+            onClick={() => setActiveSection("twilio")}
+          >
+            Twilio SMS
+          </Button>
+          <Button
+            variant={activeSection === "smtp" ? "default" : "ghost"}
+            className="w-full justify-start"
+            onClick={() => setActiveSection("smtp")}
+          >
+            SMTP
+          </Button>
+          <Button
+            variant={activeSection === "locations" ? "default" : "ghost"}
+            className="w-full justify-start"
+            onClick={() => setActiveSection("locations")}
+          >
+            Locations
+          </Button>
         </div>
       </div>
-    </>
+
+      {/* Main Content - Scrollable */}
+      <div className="flex-1 p-6 overflow-y-auto">
+        <Card>
+          <CardHeader>
+            <CardTitle>{activeSection.charAt(0).toUpperCase() + activeSection.slice(1)} Settings</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {renderSettingContent()}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
   )
 }
