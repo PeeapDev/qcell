@@ -18,7 +18,7 @@ declare global {
   }
 }
 
-type SettingSection = "general" | "security" | "notifications" | "privacy" | "createForm" | "twilio" | "smtp" | "theme" | "locations"
+type SettingSection = "general" | "security" | "notifications" | "privacy" | "createForm" | "twilio" | "smtp" | "theme" | "dynamic" | "frontend"
 
 interface SettingsPageProps {
   onSettingsChange: (logo: string, title: string, timeFormat: string, googleMapsApiKey: string) => void;
@@ -134,7 +134,7 @@ const allCountries: Country[] = [
   { name: "Kyrgyzstan", latitude: 41.20438, longitude: 74.766098 },
   { name: "Laos", latitude: 19.85627, longitude: 102.495496 },
   { name: "Latvia", latitude: 56.879635, longitude: 24.603189 },
-  { name: "Lebanon", latitude: 33.854721, longitude: 35.862285 },
+  { name: "Lebanon", latitude: 33.854721, longitude: 33.893825 },
   { name: "Lesotho", latitude: -29.609988, longitude: 28.233608 },
   { name: "Liberia", latitude: 6.428055, longitude: -9.429499 },
   { name: "Libya", latitude: 26.3351, longitude: 17.228331 },
@@ -259,6 +259,22 @@ interface Region {
   count: number;
 }
 
+// Add these interfaces near the top of the file
+interface Page {
+  id: string;
+  title: string;
+  content: string;
+  slug: string;
+}
+
+interface Post {
+  id: string;
+  title: string;
+  content: string;
+  slug: string;
+  publishDate: string;
+}
+
 export function SettingsPage({
   onSettingsChange,
   defaultLogo,
@@ -320,6 +336,19 @@ export function SettingsPage({
     { id: '5', name: 'South America', count: 0 },
   ]);
   const [newRegionName, setNewRegionName] = useState('');
+
+  const [genders, setGenders] = useState<Region[]>([
+    { id: '1', name: 'Male', count: 0 },
+    { id: '2', name: 'Female', count: 0 },
+    { id: '3', name: 'Non-binary', count: 0 },
+  ]);
+  const [newGenderName, setNewGenderName] = useState('');
+
+  // Add these state variables inside the SettingsPage component
+  const [pages, setPages] = useState<Page[]>([]);
+  const [posts, setPosts] = useState<Post[]>([]);
+
+  const [activeFrontendCategory, setActiveFrontendCategory] = useState<string | null>(null);
 
   const handleGeneralSettingChange = (key: string, value: string) => {
     setGeneralSettings(prev => ({ ...prev, [key]: value }))
@@ -455,6 +484,18 @@ export function SettingsPage({
     }
   };
 
+  const handleAddGender = () => {
+    if (newGenderName.trim() !== '') {
+      const newGender: Region = {
+        id: (genders.length + 1).toString(),
+        name: newGenderName.trim(),
+        count: 0,
+      };
+      setGenders([...genders, newGender]);
+      setNewGenderName('');
+    }
+  };
+
   const renderSettingContent = () => {
     switch (activeSection) {
       case "general":
@@ -529,7 +570,7 @@ export function SettingsPage({
                 value={generalSettings.timeFormat}
                 onValueChange={(value) => handleGeneralSettingChange('timeFormat', value)}
               >
-                <SelectTrigger className="bg-white">
+                <SelectTrigger className="w-full bg-white">
                   <SelectValue placeholder="Select time format" />
                 </SelectTrigger>
                 <SelectContent className="bg-white">
@@ -681,16 +722,32 @@ export function SettingsPage({
             <div className="mt-8">
               <h3 className="text-lg font-semibold mb-4">Dynamic Settings</h3>
               <div className="space-y-4">
-                <div>
-                  <Label htmlFor="new-region">Add New Region</Label>
-                  <div className="flex space-x-2">
-                    <Input
-                      id="new-region"
-                      value={newRegionName}
-                      onChange={(e) => setNewRegionName(e.target.value)}
-                      placeholder="Enter new region name"
-                    />
-                    <Button onClick={handleAddRegion}>Add Region</Button>
+                <div className="flex space-x-4">
+                  <div className="w-1/5">
+                    <Label htmlFor="new-region">Add New Region</Label>
+                    <div className="flex space-x-2">
+                      <Input
+                        id="new-region"
+                        value={newRegionName}
+                        onChange={(e) => setNewRegionName(e.target.value)}
+                        placeholder="Enter region name"
+                        className="flex-grow"
+                      />
+                      <Button onClick={handleAddRegion} className="whitespace-nowrap">Add</Button>
+                    </div>
+                  </div>
+                  <div className="w-1/5">
+                    <Label htmlFor="new-gender">Add New Gender</Label>
+                    <div className="flex space-x-2">
+                      <Input
+                        id="new-gender"
+                        value={newGenderName}
+                        onChange={(e) => setNewGenderName(e.target.value)}
+                        placeholder="Enter gender"
+                        className="flex-grow"
+                      />
+                      <Button onClick={handleAddGender} className="whitespace-nowrap">Add</Button>
+                    </div>
                   </div>
                 </div>
                 <div>
@@ -698,6 +755,14 @@ export function SettingsPage({
                   <ul className="list-disc pl-5">
                     {regions.map((region) => (
                       <li key={region.id}>{region.name}</li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <h4 className="text-md font-semibold mb-2">Current Genders</h4>
+                  <ul className="list-disc pl-5">
+                    {genders.map((gender) => (
+                      <li key={gender.id}>{gender.name}</li>
                     ))}
                   </ul>
                 </div>
@@ -840,31 +905,89 @@ export function SettingsPage({
             </Button>
           </div>
         )
-      case "locations":
+      case "dynamic":
         return (
           <div className="space-y-6">
-            <h3 className="text-lg font-semibold mb-4">Manage Locations</h3>
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="new-region">Add New Region</Label>
-                <div className="flex space-x-2">
-                  <Input
-                    id="new-region"
-                    value={newRegionName}
-                    onChange={(e) => setNewRegionName(e.target.value)}
-                    placeholder="Enter new region name"
-                  />
-                  <Button onClick={handleAddRegion}>Add Region</Button>
+            <div className="flex space-x-4">
+              <div className="w-1/2 space-y-4">
+                <div>
+                  <Label htmlFor="new-region">Add New Region</Label>
+                  <div className="flex space-x-2">
+                    <Input
+                      id="new-region"
+                      value={newRegionName}
+                      onChange={(e) => setNewRegionName(e.target.value)}
+                      placeholder="Enter region name"
+                      className="flex-grow"
+                    />
+                    <Button onClick={handleAddRegion} className="whitespace-nowrap">Add</Button>
+                  </div>
+                </div>
+                <div>
+                  <h4 className="text-md font-semibold mb-2">Current Regions</h4>
+                  <ul className="list-disc pl-5">
+                    {regions.map((region) => (
+                      <li key={region.id}>{region.name}</li>
+                    ))}
+                  </ul>
                 </div>
               </div>
-              <div>
-                <h4 className="text-md font-semibold mb-2">Current Regions</h4>
-                <ul className="list-disc pl-5">
-                  {regions.map((region) => (
-                    <li key={region.id}>{region.name}</li>
-                  ))}
-                </ul>
+              <div className="w-1/2 space-y-4">
+                <div>
+                  <Label htmlFor="new-gender">Add New Gender</Label>
+                  <div className="flex space-x-2">
+                    <Input
+                      id="new-gender"
+                      value={newGenderName}
+                      onChange={(e) => setNewGenderName(e.target.value)}
+                      placeholder="Enter gender"
+                      className="flex-grow"
+                    />
+                    <Button onClick={handleAddGender} className="whitespace-nowrap">Add</Button>
+                  </div>
+                </div>
+                <div>
+                  <h4 className="text-md font-semibold mb-2">Current Genders</h4>
+                  <ul className="list-disc pl-5">
+                    <li>Male</li>
+                    <li>Female</li>
+                    <li>Non-binary</li>
+                    {genders.map((gender) => (
+                      gender.name !== 'Male' && gender.name !== 'Female' && gender.name !== 'Non-binary' && (
+                        <li key={gender.id}>{gender.name}</li>
+                      )
+                    ))}
+                  </ul>
+                </div>
               </div>
+            </div>
+          </div>
+        )
+      case "frontend":
+        if (activeFrontendCategory) {
+          // Render the specific category management UI
+          return (
+            <div>
+              <Button onClick={() => setActiveFrontendCategory(null)} className="mb-4">Back to Categories</Button>
+              <h3 className="text-lg font-semibold mb-4">Manage {activeFrontendCategory}</h3>
+              {/* Add your category-specific management UI here */}
+            </div>
+          )
+        }
+        return (
+          <div className="space-y-6">
+            <h3 className="text-lg font-semibold mb-4">Frontend Management</h3>
+            <div className="grid grid-cols-3 gap-4">
+              {['Pages', 'Posts', 'Homepage', 'Footer', 'Contact', 'About Us', 'Services'].map((category) => (
+                <Card 
+                  key={category} 
+                  className="p-4 hover:shadow-md transition-shadow cursor-pointer"
+                  onClick={() => setActiveFrontendCategory(category)}
+                >
+                  <h4 className="text-md font-semibold mb-2">{category}</h4>
+                  <p className="text-sm text-gray-500">Manage {category.toLowerCase()} content</p>
+                </Card>
+              ))}
             </div>
           </div>
         )
@@ -936,11 +1059,18 @@ export function SettingsPage({
             SMTP
           </Button>
           <Button
-            variant={activeSection === "locations" ? "default" : "ghost"}
+            variant={activeSection === "dynamic" ? "default" : "ghost"}
             className="w-full justify-start"
-            onClick={() => setActiveSection("locations")}
+            onClick={() => setActiveSection("dynamic")}
           >
-            Locations
+            Dynamic Settings
+          </Button>
+          <Button
+            variant={activeSection === "frontend" ? "default" : "ghost"}
+            className="w-full justify-start"
+            onClick={() => setActiveSection("frontend")}
+          >
+            Frontend
           </Button>
         </div>
       </div>

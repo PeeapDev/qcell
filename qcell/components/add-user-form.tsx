@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
@@ -28,10 +27,21 @@ interface AddUserFormProps {
   onCancel: () => void;
   formFields: FormField[];
   regions: Region[];
+  defaultCountry: string;
+  genders?: { id: string; name: string }[];  // Make this optional
 }
 
-export default function AddUserForm({ onSubmit, onCancel, formFields, regions }: AddUserFormProps) {
-  const [formData, setFormData] = useState<Record<string, any>>({});
+export default function AddUserForm({ 
+  onSubmit, 
+  onCancel, 
+  formFields, 
+  regions, 
+  defaultCountry, 
+  genders = []  // Provide a default empty array
+}: AddUserFormProps) {
+  const [formData, setFormData] = useState<Record<string, any>>({
+    country: defaultCountry,
+  });
   const addressInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -74,6 +84,7 @@ export default function AddUserForm({ onSubmit, onCancel, formFields, regions }:
       case 'text':
       case 'email':
       case 'tel':
+      case 'date':
         return (
           <Input
             id={field.id}
@@ -96,37 +107,9 @@ export default function AddUserForm({ onSubmit, onCancel, formFields, regions }:
           />
         );
       case 'select':
-        return (
-          <Select
-            value={formData[field.id] || ''}
-            onValueChange={(value) => handleSelectChange(field.id, value)}
-          >
-            <SelectTrigger className="bg-white">
-              <SelectValue placeholder={`Select ${field.label}`} />
-            </SelectTrigger>
-            <SelectContent className="bg-white">
-              {field.options?.map((option) => (
-                <SelectItem key={option} value={option}>{option}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        );
+      case 'gender':
+      case 'country':
       case 'role':
-        return (
-          <Select
-            value={formData[field.id] || ''}
-            onValueChange={(value) => handleSelectChange(field.id, value)}
-          >
-            <SelectTrigger className="bg-white">
-              <SelectValue placeholder={`Select ${field.label}`} />
-            </SelectTrigger>
-            <SelectContent className="bg-white">
-              <SelectItem value="admin">Admin</SelectItem>
-              <SelectItem value="staff">Staff</SelectItem>
-              <SelectItem value="user">User</SelectItem>
-            </SelectContent>
-          </Select>
-        );
       case 'region':
         return (
           <Select
@@ -137,8 +120,28 @@ export default function AddUserForm({ onSubmit, onCancel, formFields, regions }:
               <SelectValue placeholder={`Select ${field.label}`} />
             </SelectTrigger>
             <SelectContent className="bg-white">
-              {regions.map((region) => (
+              {field.type === 'gender' && genders && genders.length > 0 ? (
+                genders.map((gender) => (
+                  <SelectItem key={gender.id} value={gender.id}>{gender.name}</SelectItem>
+                ))
+              ) : (
+                <SelectItem value="not-specified">Not Specified</SelectItem>
+              )}
+              {field.type === 'country' && field.options?.map((option) => (
+                <SelectItem key={option} value={option}>{option}</SelectItem>
+              ))}
+              {field.type === 'role' && (
+                <>
+                  <SelectItem value="admin">Admin</SelectItem>
+                  <SelectItem value="staff">Staff</SelectItem>
+                  <SelectItem value="user">User</SelectItem>
+                </>
+              )}
+              {field.type === 'region' && regions.map((region) => (
                 <SelectItem key={region.id} value={region.id}>{region.name}</SelectItem>
+              ))}
+              {field.type === 'select' && field.options?.map((option) => (
+                <SelectItem key={option} value={option}>{option}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -167,7 +170,7 @@ export default function AddUserForm({ onSubmit, onCancel, formFields, regions }:
             />
           </div>
           {formFields.map((field) => {
-            if (field.id === 'documentType' || field.id === 'documentNumber') {
+            if (['documentType', 'documentNumber', 'dateOfBirth', 'gender', 'country'].includes(field.id)) {
               return null; // We'll handle these fields separately
             }
             return (
@@ -177,6 +180,27 @@ export default function AddUserForm({ onSubmit, onCancel, formFields, regions }:
               </div>
             );
           })}
+          <div className="flex space-x-4">
+            <div className="w-1/2">
+              <Label htmlFor="dateOfBirth">Date of Birth</Label>
+              <Input
+                id="dateOfBirth"
+                name="dateOfBirth"
+                type="date"
+                value={formData.dateOfBirth || ''}
+                onChange={handleInputChange}
+                required
+              />
+            </div>
+            <div className="w-1/2">
+              <Label htmlFor="gender">Gender</Label>
+              {renderField({ id: 'gender', type: 'gender', label: 'Gender', required: true })}
+            </div>
+          </div>
+          <div>
+            <Label htmlFor="country">Country</Label>
+            {renderField({ id: 'country', type: 'country', label: 'Country', required: true, options: formFields.find(f => f.id === 'country')?.options })}
+          </div>
           <div className="flex space-x-4">
             <div className="w-1/2">
               <Label htmlFor="documentType">Document Type</Label>
